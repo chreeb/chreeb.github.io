@@ -4,7 +4,13 @@
   <head charset="utf-8">
   <title>Three.js Test</title>
   <style>
-    body {margin:0;}
+    body {
+      margin:0;
+      max-width:100%;
+      max-height:100%;
+      overflow-x:hidden;
+      overflow-y:hidden;
+      }
   </style>
   </head>
 
@@ -18,8 +24,10 @@
 
     function init() {
 
-      camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 100000 );
-      camera.position.z = 1;
+      camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.01, 100000 );
+      camera.position.z = 3;
+      camera.position.y = 2;
+      camera.rotation.x = -0.5;
 
       scene = new THREE.Scene();
       
@@ -33,18 +41,39 @@
       document.body.appendChild( renderer.domElement );
       
       
-      const directionalLight = new THREE.DirectionalLight(new THREE.Color('#89bed2'),0.7);
+      const directionalLight = new THREE.DirectionalLight(new THREE.Color('#89bed2'),0.8);
       directionalLight.position.set(0,1,0);
       directionalLight.castShadow = true;
       scene.add(directionalLight);
+
+      directionalLight.shadow.mapSize.width = 700;
+      directionalLight.shadow.mapSize.height = 700;
       
-      
+      const near = 1;
+      const far = 6;
+      scene.fog = new THREE.Fog(new THREE.Color('#22353C'), near, far);
       
       renderer.setClearColor(new THREE.Color('#22353C'));
-    }
+      renderer.shadowMap.enabled = true;
+      }
 
     init();
 
+    window.addEventListener( 'resize',() => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize( window.innerWidth, window.innerHeight );
+    }, false );
+
+    const stageGeo = new THREE.BoxBufferGeometry(2,2,2);
+    const stageMat = new THREE.MeshPhysicalMaterial({color:'#22353C', side: THREE.DoubleSide});
+    const stage = new THREE.Mesh(stageGeo,stageMat);
+    stage.position.y = -1.2;
+    stage.rotation.x = Math.PI / 2;
+    stage.receiveShadow = true;
+    scene.add(stage);
+
+    
     // BOID CLASS
     class Boid {
       constructor() {
@@ -61,7 +90,7 @@
           this.leftWing.rotation.x = 5;
 
           this.self.position.x = returnReducedRand(3);
-          this.self.position.y = returnReducedRand(3);
+          this.self.position.y = 0.5;
           this.self.position.z = returnReducedRand(3);
           let magStr = 0.0001;
           this.magnitude = new THREE.Vector3(minRandom(magStr),minRandom(magStr),minRandom(magStr));
@@ -82,6 +111,10 @@
               this.magnitude.x = -this.magnitude.x;
               this.magnitude.y = -this.magnitude.y;
               this.magnitude.z = -this.magnitude.z;
+          }
+
+          if (this.self.position.y < 0) {
+            this.magnitude.y = -this.magnitude.y;
           }
       }
 
@@ -173,12 +206,6 @@
       }
   }
 
-    import {OrbitControls} from 'https://unpkg.com/three/examples/jsm/controls/OrbitControls.js';
-    const controls = new OrbitControls(camera,renderer.domElement);
-    controls.target.set(0,0,0);
-    controls.update();
-
-
     let boidArr = [];
     let numBoids = 30;
     let nullVector = new THREE.Vector3(0,0,0);
@@ -189,11 +216,8 @@
 
 
 
-
-
     function animation( time ) {
       renderer.render( scene, camera );
-
       let frame = renderer.info.render.frame*0.5;
       let wingRot = Math.sin(frame)/3;
 
@@ -201,6 +225,8 @@
         boidArr[i].updateModel(wingRot)
         boidArr[i].move(boidArr);
       }
+
+      scene.rotation.y = Math.sin(frame/20) / 10;
     }
     
     animation();
@@ -213,6 +239,9 @@
 
       const loader = new THREE.GLTFLoader();
       loader.load( name, function ( gltf ) {
+        gltf.scene.traverse( function( node ) {
+        if ( node.isMesh ) { node.castShadow = true; } });
+
         _empty.add(gltf.scene);
         _empty.scale.set(0.05,0.05,0.05);
       });
