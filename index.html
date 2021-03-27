@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+
+<html>
+  <head charset="utf-8">
+  <title>Three.js Test</title>
+  <style>
+    body {margin:0;}
+  </style>
+  </head>
+
+  <body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r121/three.min.js"></script>
+    <script src="https://cdn.rawgit.com/mrdoob/three.js/master/examples/js/loaders/GLTFLoader.js"></script>
+    
+    
+    <script type="module">
+    let camera, scene, renderer;
+
+    function init() {
+
+      camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 100000 );
+      camera.position.z = 1;
+
+      scene = new THREE.Scene();
+      
+      const hlight = new THREE.AmbientLight(0xFFFFFF,0.4);
+      scene.add(hlight);
+      
+      renderer = new THREE.WebGLRenderer( { antialias: true } );
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.setSize( window.innerWidth, window.innerHeight );
+      renderer.setAnimationLoop( animation );
+      document.body.appendChild( renderer.domElement );
+      
+      
+      const directionalLight = new THREE.DirectionalLight(new THREE.Color('#89bed2'),0.7);
+      directionalLight.position.set(0,1,0);
+      directionalLight.castShadow = true;
+      scene.add(directionalLight);
+      
+      
+      
+      renderer.setClearColor(new THREE.Color('#22353C'));
+    }
+
+    init();
+
+    // BOID CLASS
+    class Boid {
+      constructor() {
+          this.self = new THREE.Object3D();
+
+          this.body = loadWholeModel('fly_lowpoly.gltf');
+          this.rightWing = loadPartModel('fly_lowpoly.gltf',10);
+          this.leftWing = loadPartModel('fly_lowpoly.gltf',9);
+          
+          this.self.add(this.body);
+          this.self.add(this.rightWing);
+          this.self.add(this.leftWing);
+
+          this.leftWing.rotation.x = 5;
+
+          this.self.position.x = returnReducedRand(3);
+          this.self.position.y = returnReducedRand(3);
+          this.self.position.z = returnReducedRand(3);
+          let magStr = 0.0001;
+          this.magnitude = new THREE.Vector3(minRandom(magStr),minRandom(magStr),minRandom(magStr));
+          scene.add(this.self);
+
+          this.isCenterPull = false;
+
+          this.lookAtVector = new THREE.Vector3(0,0,0);
+      }
+
+      updateModel(wingRot) {
+        this.leftWing.rotation.x = wingRot;
+        this.rightWing.rotation.x = wingRot;
+      }
+
+      checkLimits() {
+          if (distanceVector(this.self.position,nullVector) > 2) {
+              this.magnitude.x = -this.magnitude.x;
+              this.magnitude.y = -this.magnitude.y;
+              this.magnitude.z = -this.magnitude.z;
+          }
+      }
+
+      updateLookAt(boidArr) {
+        let closestVector = new THREE.Vector3(0,0,0);
+        let minimumDistance = 10000;
+        let isClose = false;
+        let foundClosest;
+        boidArr.forEach((other) => {
+          if (other == this) { return; }
+
+          let dist = this.self.position.distanceToSquared(other.self.position);
+          if (dist < minimumDistance && dist < 0.5) {
+            minimumDistance = dist;
+            closestVector = other.self.position;
+            isClose = true;
+          }
+        });
+
+        if (isClose) {
+          this.lookAtVector.x += (closestVector.x - this.lookAtVector.x) * 0.01;
+          this.lookAtVector.y += (closestVector.y - this.lookAtVector.y) * 0.01;
+          this.lookAtVector.z += (closestVector.z - this.lookAtVector.z) * 0.01;
+        }
+
+        this.self.lookAt(this.lookAtVector);
+      }
+
+      easeVector(target,current,easeAmt) {
+        let x = (target.x - current.x) * easeAmt;
+        let y = (target.y - current.y) * easeAmt;
+        let z = (target.z - current.z) * easeAmt;
+        
+        return new THREE.Vector3(x,y,z);
+      }
+
+      returnGravityVector(boidArr,distance) {
+          let gravityVector = new THREE.Vector3(0,0,0);
+          let numNeighbors = 0;
+
+          boidArr.forEach((other) => {
+              if (other == this) { return; }
+
+              let dist = this.self.position.distanceToSquared(other.self.position);
+              if (dist < distance) {
+                  let otherPos = other.self.position;
+                  gravityVector.add(otherPos);
+                  numNeighbors++;
+              }
+          });
+
+          if (numNeighbors != 0) {
+              gravityVector.divideScalar(numNeighbors);
+              return gravityVector
+          } else {
+              return false;
+          }
+      }
+
+      move(boidArr) {
+          this.magnitude.normalize();
+          this.magnitude.divideScalar(100);
+          
+          let moveAwayVec = this.returnGravityVector(boidArr,0.3);
+          if (moveAwayVec) {
+              moveAwayVec.subVectors(moveAwayVec,this.self.position);
+              moveAwayVec.divideScalar(500);
+              this.magnitude.sub(moveAwayVec);
+          }
+          
+          let moveTowardsVec = this.returnGravityVector(boidArr,0.7);
+          if (moveTowardsVec) {
+              moveTowardsVec.subVectors(moveTowardsVec,this.self.position);
+              moveTowardsVec.divideScalar(1000);
+              this.magnitude.add(moveTowardsVec);
+          }
+
+          if (this.isCenterPull) {
+              let centerVector = new THREE.Vector3(0,0,0);
+              centerVector.subVectors(centerVector,this.self.position);
+              centerVector.divideScalar(1000);
+              this.magnitude.add(centerVector);
+          }
+
+          this.self.position.add(this.magnitude);
+
+          this.checkLimits();
+          this.updateLookAt(boidArr);
+      }
+  }
+
+    import {OrbitControls} from 'https://unpkg.com/three/examples/jsm/controls/OrbitControls.js';
+    const controls = new OrbitControls(camera,renderer.domElement);
+    controls.target.set(0,0,0);
+    controls.update();
+
+
+    let boidArr = [];
+    let numBoids = 30;
+    let nullVector = new THREE.Vector3(0,0,0);
+
+    for (let i = 0; i < numBoids; i++) {
+      boidArr.push(new Boid());
+    }
+
+
+
+
+
+    function animation( time ) {
+      renderer.render( scene, camera );
+
+      let frame = renderer.info.render.frame*0.5;
+      let wingRot = Math.sin(frame)/3;
+
+      for (let i = 0; i < boidArr.length; i++) {
+        boidArr[i].updateModel(wingRot)
+        boidArr[i].move(boidArr);
+      }
+    }
+    
+    animation();
+  
+
+  
+    // MODEL LOADER
+    function loadWholeModel(name) {
+      let _empty = new THREE.Object3D();
+
+      const loader = new THREE.GLTFLoader();
+      loader.load( name, function ( gltf ) {
+        _empty.add(gltf.scene);
+        _empty.scale.set(0.05,0.05,0.05);
+      });
+
+      return _empty;
+    }
+    
+    function loadPartModel(name,num) {
+      let _empty = new THREE.Object3D();
+
+      const loader = new THREE.GLTFLoader();
+      loader.load( name, function ( gltf ) {
+        _empty.add(gltf.scene.children[num]);
+        _empty.scale.set(0.05,0.05,0.05);
+      });
+
+      return _empty;
+    }
+
+    // MATH FUNCTIONS
+    function returnRand(mod) {
+    let newRand = Math.random()/mod;
+    return newRand;
+  }
+
+    function returnReducedRand(mod) {
+      return ((Math.random()*mod) - (mod/2))/mod;
+  }
+
+    function minRandom(mod) {
+      return Math.random(mod) - (mod/2);
+  }
+
+    function distanceVector( v1, v2 )
+  {
+      var dx = v1.x - v2.x;
+      var dy = v1.y - v2.y;
+      var dz = v1.z - v2.z;
+
+      return Math.sqrt( dx * dx + dy * dy + dz * dz );
+  }
+
+  </script>
+
+
+  </body>
+</html>
